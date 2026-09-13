@@ -1,0 +1,274 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Anyanwu_Obioma_Anselam_UTM_Simulator</title>
+    <style>
+        :root {
+            --bg-color: #0f172a;
+            --card-bg: #1e293b;
+            --text-main: #f8fafc;
+            --text-muted: #94a3b8;
+            --primary: #3b82f6;
+            --success: #22c55e;
+            --danger: #ef4444;
+            --warning: #f59e0b;
+        }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-main);
+            margin: 0;
+            padding: 20px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+        }
+        .container {
+            width: 100%;
+            max-width: 850px;
+            background-color: var(--card-bg);
+            border-radius: 12px;
+            box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.3);
+            padding: 24px;
+            box-sizing: border-box;
+        }
+        h2 { margin-top: 0; font-size: 1.4rem; border-bottom: 1px solid #334155; padding-bottom: 12px; color: #fff; }
+        .author-tag { font-size: 0.85rem; color: var(--text-muted); margin-bottom: 15px; font-weight: normal; }
+        .tabs { display: flex; gap: 8px; margin-bottom: 20px; background: #0f172a; padding: 4px; border-radius: 8px; }
+        .tab-btn {
+            flex: 1; background: transparent; border: none; color: var(--text-muted);
+            padding: 10px; border-radius: 6px; cursor: pointer; font-weight: 600; font-size: 0.9rem;
+            transition: all 0.2s;
+        }
+        .tab-btn.active { background: var(--primary); color: #fff; }
+        .tab-btn:hover:not(.active) { background: #1e293b; color: var(--text-main); }
+        .control-panel {
+            display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 16px; margin-bottom: 20px; background: #0f172a; padding: 16px; border-radius: 8px;
+        }
+        .metric-box { display: flex; flex-direction: column; }
+        .metric-label { font-size: 0.8rem; color: var(--text-muted); text-transform: uppercase; margin-bottom: 4px; font-weight: 600; }
+        .metric-val { font-size: 1.2rem; font-weight: bold; color: #fff; }
+        .canvas-container { position: relative; width: 100%; background: #0b0f19; border-radius: 8px; overflow: hidden; border: 1px solid #334155; }
+        canvas { display: block; width: 100%; height: auto; }
+        .status-bar { margin-top: 16px; padding: 12px; border-radius: 6px; font-weight: 500; font-size: 0.9rem; display: flex; align-items: center; gap: 8px; }
+        .status-ideal { background: rgba(34, 197, 94, 0.15); color: var(--success); border: 1px solid rgba(34, 197, 94, 0.3); }
+        .status-failure { background: rgba(239, 68, 68, 0.15); color: var(--danger); border: 1px solid rgba(239, 68, 68, 0.3); }
+        .status-override { background: rgba(59, 130, 246, 0.15); color: var(--primary); border: 1px solid rgba(59, 130, 246, 0.3); }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h2>UTM Airspace Deconfliction Simulator</h2>
+    <div class="author-tag">Candidate: <strong>Anyanwu Obioma Anselam</strong></div>
+    
+    <div class="tabs">
+        <button class="tab-btn active" onclick="setMode('ideal')">1. Ideal State (0% Loss)</button>
+        <button class="tab-btn" onclick="setMode('failure')">2. Infrastructure Lag (40% Loss)</button>
+        <button class="tab-btn" onclick="setMode('override')">3. Adaptive Override (1.45x)</button>
+    </div>
+
+    <div class="control-panel">
+        <div class="metric-box">
+            <span class="metric-label">Packet Drop Rate</span>
+            <span class="metric-val" id="val-packet">0%</span>
+        </div>
+        <div class="metric-box">
+            <span class="metric-label">CVE Safety Cushion</span>
+            <span class="metric-val" id="val-cve">50.0 Meters</span>
+        </div>
+        <div class="metric-box">
+            <span class="metric-label">Airspace Alert Status</span>
+            <span class="metric-val" id="val-status" style="color:var(--success);">NOMINAL</span>
+        </div>
+    </div>
+
+    <div class="canvas-container">
+        <canvas id="simCanvas" width="800" height="400"></canvas>
+    </div>
+
+    <div class="status-bar status-ideal" id="status-desc">
+        🟢 System operating nominally via satellite links. Real-time deconfliction active with clear visibility metrics.
+    </div>
+</div>
+
+<script>
+    const canvas = document.getElementById('simCanvas');
+    const ctx = canvas.getContext('2d');
+    
+    let mode = 'ideal';
+    let packetLoss = 0;
+    let baseRadius = 45; 
+    let currentRadius = baseRadius;
+    let alertStatus = 'NOMINAL';
+    let frame = 0;
+
+    let droneA = { x: 80, y: 170, targetY: 170, realX: 80, realY: 170, color: '#3b82f6', label: 'UAV-Alpha' };
+    let droneB = { x: 720, y: 230, targetY: 230, realX: 720, realY: 230, color: '#ec4899', label: 'UAV-Beta' };
+
+    function setMode(newMode) {
+        mode = newMode;
+        document.querySelectorAll('.tab-btn').forEach((btn, idx) => {
+            btn.classList.toggle('active', (idx === 0 && mode === 'ideal') || (idx === 1 && mode === 'failure') || (idx === 2 && mode === 'override'));
+        });
+        
+        droneA.x = 80; droneA.y = 170; droneA.realX = 80; droneA.realY = 170;
+        droneB.x = 720; droneB.y = 230; droneB.realX = 720; droneB.realY = 230;
+        frame = 0;
+    }
+
+    function update() {
+        frame++;
+        let speed = 2.2;
+        
+        if (droneA.x < 720) {
+            droneA.realX += speed;
+            droneB.realX -= speed;
+        } else {
+            droneA.x = 80; droneA.realX = 80; droneA.y = 170;
+            droneB.x = 720; droneB.realX = 720; droneB.y = 230;
+        }
+
+        const pE = document.getElementById('val-packet');
+        const cE = document.getElementById('val-cve');
+        const sE = document.getElementById('val-status');
+        const dE = document.getElementById('status-desc');
+
+        if (mode === 'ideal') {
+            packetLoss = 0;
+            currentRadius = baseRadius;
+            droneA.x = droneA.realX; droneB.x = droneB.realX;
+            droneA.y = droneA.realY; droneB.y = droneB.realY;
+            
+            if (droneA.realX > 320 && droneA.realX < 480) {
+                droneA.realY = 140; droneB.realY = 260;
+            } else {
+                droneA.realY = 170; droneB.realY = 230;
+            }
+            
+            alertStatus = 'NOMINAL';
+            sE.style.color = 'var(--success)';
+            dE.className = 'status-bar status-ideal';
+            dE.innerText = '🟢 System operating nominally via satellite links. Real-time deconfliction loops active with zero lag.';
+            pE.innerText = '0%'; cE.innerText = '50.0 Meters'; sE.innerText = 'NOMINAL';
+
+        } else if (mode === 'failure') {
+            packetLoss = 40;
+            currentRadius = baseRadius;
+            droneA.realY = 170; droneB.realY = 230;
+            
+            if (frame % 30 === 0 || frame % 30 < 12) {
+                droneA.x = droneA.realX; droneA.y = droneA.realY;
+                droneB.x = droneB.realX; droneB.y = droneB.realY;
+            }
+
+            let dx = droneA.realX - droneB.realX;
+            let dy = droneA.realY - droneB.realY;
+            let distance = Math.sqrt(dx*dx + dy*dy);
+            
+            if (distance < (baseRadius * 2)) {
+                alertStatus = 'CRITICAL BREACH';
+                sE.style.color = 'var(--danger)';
+                dE.className = 'status-bar status-failure';
+                dE.innerText = '🔴 CRITICAL: 40% packet drops blindfolded the tracking node! Drones breached static 50m boundaries before network data updated.';
+                sE.innerText = 'CRITICAL BREACH';
+            } else {
+                alertStatus = 'LATENCY HAZARD';
+                sE.style.color = 'var(--warning)';
+                dE.className = 'status-bar status-failure';
+                dE.innerText = '⚠️ WARNING: Network signal dropped 40% of telemetry links. Screen location lag detected.';
+                sE.innerText = 'LATENCY HAZARD';
+            }
+            pE.innerText = '40%'; cE.innerText = '50.0 Meters';
+
+        } else if (mode === 'override') {
+            packetLoss = 40;
+            currentRadius = baseRadius * 1.45; 
+            
+            if (droneA.realX > 250 && droneA.realX < 550) {
+                droneA.realY = 120; droneB.realY = 280;
+            } else {
+                droneA.realY = 170; droneB.realY = 230;
+            }
+
+            if (frame % 30 === 0 || frame % 30 < 12) {
+                droneA.x = droneA.realX; droneA.y = droneA.realY;
+                droneB.x = droneB.realX; droneB.y = droneB.realY;
+            }
+
+            alertStatus = 'ADAPTIVE RESOLVED';
+            sE.style.color = 'var(--primary)';
+            dE.className = 'status-bar status-override';
+            dE.innerText = '🔵 OVERRIDE ACTIVE: 1.45x Safety Multiplier expanded CVE radius to 72.5m. Early routing cushions absorbed network lag safely.';
+            pE.innerText = '40%'; cE.innerText = '72.5 Meters'; sE.innerText = 'ADAPTIVE ACTIVE';
+        }
+    }
+
+    function draw() {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        
+        ctx.strokeStyle = '#1e293b'; ctx.lineWidth = 1;
+        for (let i = 0; i < canvas.width; i += 40) {
+            ctx.beginPath(); ctx.moveTo(i, 0); ctx.lineTo(i, canvas.height); ctx.stroke();
+        }
+        for (let j = 0; j < canvas.height; j += 40) {
+            ctx.beginPath(); ctx.moveTo(0, j); ctx.lineTo(canvas.width, j); ctx.stroke();
+        }
+
+        ctx.strokeStyle = '#334155'; ctx.setLineDash(); ctx.lineWidth = 2;
+        ctx.beginPath(); ctx.moveTo(80, 170); ctx.lineTo(720, 170); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(720, 230); ctx.lineTo(80, 230); ctx.stroke();
+        ctx.setLineDash([]);
+        
+        drawDrone(droneA, currentRadius);
+        drawDrone(droneB, currentRadius);
+    }
+    
+    function drawDrone(drone, radius) {
+        ctx.beginPath();
+        ctx.arc(drone.x, drone.y, radius, 0, Math.PI * 2);
+        if (mode === 'ideal') {
+            ctx.strokeStyle = 'rgba(34, 197, 94, 0.6)';
+            ctx.fillStyle = 'rgba(34, 197, 94, 0.05)';
+        } else if (mode === 'failure') {
+            let dx = droneA.realX - droneB.realX;
+            let dy = droneA.realY - droneB.realY;
+            let d = Math.sqrt(dx*dx + dy*dy);
+            if (d < (baseRadius * 2)) {
+                ctx.strokeStyle = 'rgba(239, 68, 68, 0.8)';
+                ctx.fillStyle = 'rgba(239, 68, 68, 0.15)';
+            } else {
+                ctx.strokeStyle = 'rgba(245, 158, 11, 0.6)';
+                ctx.fillStyle = 'rgba(245, 158, 11, 0.05)';
+            }
+        } else {
+            ctx.strokeStyle = 'rgba(59, 130, 246, 0.7)';
+            ctx.fillStyle = 'rgba(59, 130, 246, 0.05)';
+        }
+        ctx.lineWidth = 2; ctx.fill(); ctx.stroke();
+        if (mode !== 'ideal' && (frame % 20 < 8)) {
+            ctx.fillStyle = 'rgba(148, 163, 184, 0.4)';
+            ctx.beginPath(); ctx.arc(drone.realX, drone.realY, 4, 0, Math.PI * 2); ctx.fill();
+        }
+        ctx.fillStyle = drone.color;
+        ctx.beginPath(); ctx.arc(drone.x, drone.y, 7, 0, Math.PI * 2); ctx.fill();
+        ctx.strokeStyle = '#fff'; ctx.lineWidth = 1.5;
+        ctx.beginPath(); ctx.moveTo(drone.x - 12, drone.y); ctx.lineTo(drone.x + 12, drone.y); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(drone.x, drone.y - 12); ctx.lineTo(drone.x, drone.y + 12); ctx.stroke();
+        ctx.fillStyle = '#f8fafc'; ctx.font = 'bold 11px monospace';
+        ctx.fillText(drone.label, drone.x - 30, drone.y - radius - 8);
+    }
+    
+    function loop() {
+        update();
+        draw();
+        requestAnimationFrame(loop);
+    }
+    loop();
+</script>
+</body>
+</html>
